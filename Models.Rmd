@@ -1,0 +1,115 @@
+---
+title: "Food_Delivery_Models"
+output: html_notebook
+---
+```{r, message=FALSE, warning=FALSE}
+library(fpp)
+library(reshape)
+library(dplyr)
+library(glmnet)
+library(leaps)
+library(car)
+Food<-read.csv("~/Desktop/Pricing & Revenue Mgmt./Food_Delivery_Project/Data/train_grouped.csv")
+
+xm <- model.matrix(week ~. - num_orders, data=Food)[,-1]
+y <- Food$num_orders
+
+#Separation of Training and Testing sets
+xm.tr <- xm[1:100,1:34]
+y.tr <-  y[1:100]
+xm.te <- xm[101:145,1:34]
+y.te <-  y[101:145]
+#
+```
+```{r}
+NaiveModel=mean(y)
+NaiveModelRMSE=sqrt((sum((y-NaiveModel)^2))/length(y))
+NaiveModelRMSE
+```
+
+```{r}
+LagOrders=lag(Food$num_orders, n=1)
+Lagmodel=lm(Food$num_orders~LagOrders)
+#summary(Lagmodel)
+RSS <- c(crossprod(Lagmodel$residuals))
+MSE <- RSS / length(Lagmodel$residuals)
+LAG_RMSE <- sqrt(MSE)
+LAG_RMSE
+```
+
+```{r}
+null <- lm(Food$num_orders ~ 1, data=Food)
+full <- lm(Food$num_orders ~ checkout_price+base_price+emailer_for_promotion+homepage_featured+op_area+Beverages +Desert+Extras+Fish+Other.Snacks+Pasta+Pizza+Rice.Bowl+Salad+Sandwich+Seafood+Soup+Starters+Continental+Indian+Italian+Thai+region1+region2+region3+region4+region5+region6+region7+region8+TYPE_A+TYPE_B+TYPE_C,data=Food)
+
+forward.model <- step(null,scope=list(lower=null, upper=full),direction="forward")
+RSS <- c(crossprod(forward.model$residuals))
+MSE <- RSS / length(forward.model$residuals)
+Forward_RMSE <- sqrt(MSE)
+sig2 <- RSS / forward.model$df.residual
+```
+```{r}
+#summary(forward.model)
+Forward_RMSE
+```
+
+```{r}
+y.LS <- ts(y, start=1)
+y.tr <- window(y.LS, end=100)
+y.te <- window(y.LS, start=101)
+#ggtsdisplay(y.LS)
+#adf.test(y.LS)
+x.LS=ts(xm,start=1)
+```
+```{r}
+maa.SKX <- auto.arima(y.LS, xreg=x.LS[,c(1,3,4,5,6,9,20,24,28)])
+#summary(maa.SKX)
+#checkresiduals(maa.SKX)
+RSS <- c(crossprod(maa.SKX$residuals))
+MSE <- RSS / length(maa.SKX$residuals)
+DRAuto_RMSE <- sqrt(MSE)
+sig2 <- RSS / maa.SKX$df.residual
+DRAuto_RMSE
+```
+
+```{r}
+RMSE <- c()
+P=c()
+Q=c()
+for (p in 0:8){
+  for (q in 0:8){
+    maa.SKX <- Arima(y.LS, order=c(p,0,q))
+    RSS <- c(crossprod(maa.SKX$residuals))
+    MSE <- RSS / length(maa.SKX$residuals)
+    ARIMA_RMSE <- sqrt(MSE)
+    sig2 <- RSS / maa.SKX$df.residual
+    P=c(P,p)
+    Q=c(Q,q)
+    RMSE = c(RMSE,ARIMA_RMSE)
+  }
+}
+ARIMA.DF=data.frame(cbind(P,Q,RMSE))
+ARIMA_RMSE=min(RMSE)
+ARIMA_RMSE
+```
+
+```{r}
+#Picked the five most important variables from the Auto Arima 
+ARIMA_regression=lm(num_orders~checkout_price+emailer_for_promotion+homepage_featured+Beverages+Continental,data=Food)
+#ggtsdisplay(diff(ARIMA_regression$residuals))
+#adf.test(ARIMA_regression$residuals)
+m.SKX <- Arima(y.LS, order=c(17,1,18),xreg=x.LS[,c(1,3,4,6,20)])
+#summary(m.SKX)
+
+RSS <- c(crossprod(m.SKX$residuals))
+MSE <- RSS / length(m.SKX$residuals)
+DR_RMSE <- sqrt(MSE)
+sig2 <- RSS / m.SKX$df.residual
+DR_RMSE
+```
+
+```{r}
+RMSE=c(NaiveModelRMSE,LAG_RMSE,ARIMA_RMSE,DRAuto_RMSE,Forward_RMSE,DR_RMSE)
+MSE.SE <- data.frame(RMSE)
+rownames(MSE.SE) <- c("Naive","Lag","ARIMA","Auto Dynamic Regression","Forward Regression","Dynamic Regression")
+MSE.SE
+```
